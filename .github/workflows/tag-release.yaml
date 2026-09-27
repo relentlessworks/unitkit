@@ -44,23 +44,16 @@ jobs:
 
       - name: Cross-compile
         if: steps.check_tag.outputs.exists == 'false'
-        strategy:
-          matrix:
-            include:
-              - goos: linux
-                goarch: amd64
-              - goos: linux
-                goarch: arm64
-              - goos: darwin
-                goarch: amd64
-              - goos: darwin
-                goarch: arm64
-              - goos: windows
-                goarch: amd64
         run: |
-          CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
-          go build -trimpath -ldflags "-s -w" -o unitkit-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }} ./cmd/unitkit
-          tar -czf unitkit-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz unitkit-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }} README.md
+          for pair in linux:amd64 linux:arm64 darwin:amd64 darwin:arm64 windows:amd64; do
+            GOOS="${pair%:*}"
+            GOARCH="${pair#*:}"
+            ext=""
+            [ "$GOOS" = "windows" ] && ext=".exe"
+            CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" \
+              go build -trimpath -ldflags "-s -w" -o "unitkit-${GOOS}-${GOARCH}${ext}" ./cmd/unitkit
+            tar -czf "unitkit-${GOOS}-${GOARCH}.tar.gz" "unitkit-${GOOS}-${GOARCH}${ext}" README.md
+          done
 
       - name: Generate checksums
         if: steps.check_tag.outputs.exists == 'false'
