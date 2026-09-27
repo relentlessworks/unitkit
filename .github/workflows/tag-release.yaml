@@ -1,0 +1,77 @@
+name: Tag & Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  tag-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read version
+        id: version
+        run: echo "version=v$(cat VERSION)" >> $GITHUB_OUTPUT
+
+      - name: Check if tag exists
+        id: check_tag
+        run: |
+          if git rev-parse ${{ steps.version.outputs.version }} >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create tag
+        if: steps.check_tag.outputs.exists == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag ${{ steps.version.outputs.version }}
+          git push origin ${{ steps.version.outputs.version }}
+
+      - name: Setup Go
+        if: steps.check_tag.outputs.exists == 'false'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Cross-compile
+        if: steps.check_tag.outputs.exists == 'false'
+        strategy:
+          matrix:
+            include:
+              - goos: linux
+                goarch: amd64
+              - goos: linux
+                goarch: arm64
+              - goos: darwin
+                goarch: amd64
+              - goos: darwin
+                goarch: arm64
+              - goos: windows
+                goarch: amd64
+        run: |
+          CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
+          go build -trimpath -ldflags "-s -w" -o unitkit-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }} ./cmd/unitkit
+          tar -czf unitkit-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz unitkit-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }} README.md
+
+      - name: Generate checksums
+        if: steps.check_tag.outputs.exists == 'false'
+        run: sha256sum unitkit-*.tar.gz > checksums.txt
+
+      - name: Create release
+        if: steps.check_tag.outputs.exists == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          files: |
+            unitkit-*.tar.gz
+            checksums.txt
+          generate_release_notes: true

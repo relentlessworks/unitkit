@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['docs/**', '*.md', 'LICENSE']
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      - run: go test -race ./...
+      - run: CGO_ENABLED=0 go build -trimpath ./cmd/unitkit
+
+  cross-compile:
+    needs: check
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goos: [linux, linux, darwin, darwin, windows]
+        goarch: [amd64, arm64, amd64, arm64, amd64]
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: |
+          CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
+          go build -trimpath -ldflags "-s -w" -o unitkit-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }} ./cmd/unitkit
+      - uses: actions/upload-artifact@v4
+        with:
+          name: unitkit-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: unitkit-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}
